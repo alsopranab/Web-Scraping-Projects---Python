@@ -1,0 +1,49 @@
+name: Sync Web Scraping Projects
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # Runs daily at 2 AM UTC
+  workflow_dispatch:      # Allows manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+      - name: Fetch scraping repositories
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          USERNAME: ${{ github.repository_owner }}
+        run: |
+          mkdir -p projects
+          cd projects
+
+          repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/users/$USERNAME/repos?per_page=100 \
+            | jq -r '.[].name | select(test("scrap"; "i"))')
+
+          for repo in $repos; do
+            if [ ! -d "$repo" ]; then
+              echo "Cloning $repo"
+              git clone https://github.com/$USERNAME/$repo.git
+            else
+              echo "Updating $repo"
+              cd $repo
+              git pull
+              cd ..
+            fi
+          done
+
+      - name: Commit changes
+        run: |
+          git add projects
+          git diff --cached --quiet || git commit -m "Auto-sync scraping projects"
+          git push
